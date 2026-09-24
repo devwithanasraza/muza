@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # 1. Primary Relational Database: MySQL 8.0 ONLY
+  mysql:
+    image: mysql:8.0
+    container_name: muza-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: muza_db
+      MYSQL_USER: muza_user
+      MYSQL_PASSWORD: muza_password
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-prootpassword']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Ephemeral Queue & Processing Cache: Redis
+  redis:
+    image: redis:7-alpine
+    container_name: muza-redis
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 3. Fastify REST API Server
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.api
+    container_name: muza-api
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '4000:4000'
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: 'mysql://muza_user:muza_password@mysql:3306/muza_db'
+      REDIS_URL: 'redis://redis:6379'
+      PORT: 4000
+      HOST: '0.0.0.0'
+
+  # 4. BullMQ Background Pipeline Worker
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    container_name: muza-worker
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: 'mysql://muza_user:muza_password@mysql:3306/muza_db'
+      REDIS_URL: 'redis://redis:6379'
+
+volumes:
+  mysql_data:
+  redis_data:

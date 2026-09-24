@@ -1,0 +1,449 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum VideoStatus {
+  DISCOVERED
+  DOWNLOADING
+  DOWNLOADED
+  PROCESSING
+  ANALYZING
+  GENERATING_CONTENT
+  READY_FOR_REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  PARTIALLY_PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum SocialPlatform {
+  YOUTUBE
+  INSTAGRAM
+}
+
+enum PublishJobStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum YouTubePrivacy {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+}
+
+model User {
+  id              String           @id @default(uuid())
+  name            String
+  email           String           @unique
+  passwordHash    String?
+  avatarUrl       String?          @db.VarChar(1000)
+  role            Role             @default(OWNER)
+  status          UserStatus       @default(ACTIVE)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  sessions        Session[]
+  brandProfiles   BrandProfile[]
+  driveConnections DriveConnection[]
+  videos          Video[]
+  socialAccounts  SocialAccount[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  userId      String
+  token       String   @unique @db.VarChar(512)
+  expiresAt   DateTime
+  ipAddress   String?  @db.VarChar(64)
+  userAgent   String?  @db.VarChar(512)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+model BrandProfile {
+  id               String   @id @default(uuid())
+  userId           String
+  brandName        String
+  niche            String?
+  audience         String?  @db.Text
+  language         String   @default("English")
+  tone             String   @default("Professional & Engaging")
+  descriptionStyle String?  @db.Text
+  captionStyle     String?  @db.Text
+  defaultCTA       String?  @db.Text
+  defaultHashtags  Json?
+  forbiddenWords   Json?
+  preferredWords   Json?
+  emojiPolicy      String   @default("STANDARD")
+  isDefault        Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiGenerations    AiGeneration[]
+
+  @@index([userId])
+  @@map("brand_profiles")
+}
+
+model DriveConnection {
+  id                    String        @id @default(uuid())
+  userId                String
+  accountEmail          String?
+  accountName           String?
+  accessTokenEncrypted  String        @db.Text
+  refreshTokenEncrypted String?       @db.Text
+  tokenExpiresAt        DateTime?
+  status                String        @default("CONNECTED") // CONNECTED, EXPIRED, REVOKED, ERROR
+  lastError             String?       @db.Text
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folders               DriveFolder[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("drive_connections")
+}
+
+model DriveFolder {
+  id                String          @id @default(uuid())
+  driveConnectionId String
+  folderId          String          // Google Drive folder ID
+  folderName        String
+  folderPath        String?         @db.VarChar(1000)
+  syncEnabled       Boolean         @default(true)
+  lastSyncedAt      DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  driveConnection   DriveConnection @relation(fields: [driveConnectionId], references: [id], onDelete: Cascade)
+  videos            Video[]
+
+  @@unique([driveConnectionId, folderId])
+  @@index([folderId])
+  @@index([driveConnectionId])
+  @@map("drive_folders")
+}
+
+model Video {
+  id                 String              @id @default(uuid())
+  userId             String
+  driveFolderId      String?
+  driveFileId        String              @unique // Unique Drive file identity
+  filename           String              @db.VarChar(500)
+  fileHash           String?             @db.VarChar(128) // SHA-256 for duplicate detection
+  fileSize           BigInt              @default(0)
+  mimeType           String              @db.VarChar(100)
+  driveWebViewLink   String?             @db.VarChar(1000)
+  driveThumbnailLink String?             @db.VarChar(1000)
+  status             VideoStatus         @default(DISCOVERED)
+  duration           Float?              @default(0)
+  localPath          String?             @db.VarChar(1000)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driveFolder        DriveFolder?        @relation(fields: [driveFolderId], references: [id], onDelete: SetNull)
+  analysis           VideoAnalysis?
+  variants           ContentVariant[]
+  processingJobs     VideoProcessingJob[]
+  aiGenerations      AiGeneration[]
+  publishJobs        PublishJob[]
+  publishedPosts     PublishedPost[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([driveFileId])
+  @@index([fileHash])
+  @@index([createdAt])
+  @@map("videos")
+}
+
+model VideoProcessingJob {
+  id          String    @id @default(uuid())
+  videoId     String
+  stage       String    // DOWNLOAD, VALIDATE, TRANSCRIPTION, ANALYSIS, GENERATION
+  status      String    // PENDING, RUNNING, COMPLETED, FAILED
+  error       String?   @db.Text
+  retryCount  Int       @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  video       Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+  @@index([status])
+  @@map("video_processing_jobs")
+}
+
+model VideoAnalysis {
+  id              String   @id @default(uuid())
+  videoId         String   @unique
+  transcript      String   @db.LongText
+  detectedLanguage String  @default("en")
+  topics          Json?    // Array of topics
+  keywords        Json?    // Array of keywords
+  entities        Json?    // Array of recognized entities
+  summary         String?  @db.Text
+  hook            String?  @db.Text
+  targetAudience  String?  @db.Text
+  contentCategory String?  @db.VarChar(100)
+  visualSummary   String?  @db.Text
+  duration        Float?   @default(0)
+  confidence      Float    @default(0.9)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+  @@map("video_analysis")
+}
+
+model AiGeneration {
+  id              String        @id @default(uuid())
+  videoId         String
+  brandProfileId  String?
+  promptVersion   String        @default("v1")
+  rawResponse     String?       @db.LongText
+  isValidJson     Boolean       @default(true)
+  model           String        @default("gpt-4o")
+  tokensUsed      Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  video           Video         @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  brandProfile    BrandProfile? @relation(fields: [brandProfileId], references: [id], onDelete: SetNull)
+
+  @@index([videoId])
+  @@map("ai_generations")
+}
+
+model ContentVariant {
+  id          String         @id @default(uuid())
+  videoId     String
+  platform    SocialPlatform
+  title       String?        @db.VarChar(500)
+  description String?        @db.Text
+  caption     String?        @db.Text
+  tags        Json?          // String[]
+  keywords    Json?          // String[]
+  hashtags    Json?          // String[]
+  cta         String?        @db.Text
+  hook        String?        @db.Text
+  category    String?        @db.VarChar(100)
+  privacy     YouTubePrivacy @default(PRIVATE)
+  status      String         @default("DRAFT") // DRAFT, REVIEWED, APPROVED, REJECTED
+  isApproved  Boolean        @default(false)
+  approvedAt  DateTime?
+  approvedBy  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  video       Video          @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  publishJobs PublishJob[]
+
+  @@index([videoId])
+  @@index([platform])
+  @@index([isApproved])
+  @@map("content_variants")
+}
+
+model SocialAccount {
+  id                    String         @id @default(uuid())
+  userId                String
+  platform              SocialPlatform
+  accountName           String
+  externalAccountId     String         // YouTube Channel ID or Meta Page/IG ID
+  accessTokenEncrypted  String         @db.Text
+  refreshTokenEncrypted String?        @db.Text
+  tokenExpiresAt        DateTime?
+  status                String         @default("CONNECTED") // CONNECTED, EXPIRED, REVOKED, ERROR
+  metadata              Json?          // Profile photo, subscribers, username, etc.
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publishJobs           PublishJob[]
+  publishedPosts        PublishedPost[]
+
+  @@unique([userId, platform, externalAccountId])
+  @@index([userId])
+  @@index([platform])
+  @@index([status])
+  @@map("social_accounts")
+}
+
+model PublishJob {
+  id               String           @id @default(uuid())
+  videoId          String
+  contentVariantId String
+  socialAccountId  String
+  platform         SocialPlatform
+  scheduledAt      DateTime?
+  status           PublishJobStatus @default(PENDING)
+  idempotencyKey   String           @unique @db.VarChar(255)
+  attemptCount     Int              @default(0)
+  maxAttempts      Int              @default(4)
+  lastError        String?          @db.Text
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  video            Video            @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  contentVariant   ContentVariant   @relation(fields: [contentVariantId], references: [id], onDelete: Cascade)
+  socialAccount    SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  attempts         PublishAttempt[]
+  publishedPost    PublishedPost?
+
+  @@index([videoId])
+  @@index([socialAccountId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([idempotencyKey])
+  @@map("publish_jobs")
+}
+
+model PublishAttempt {
+  id              String     @id @default(uuid())
+  publishJobId    String
+  attemptNumber   Int
+  status          String     // RUNNING, SUCCESS, FAILED
+  error           String?    @db.Text
+  responsePayload Json?
+  startedAt       DateTime   @default(now())
+  finishedAt      DateTime?
+
+  publishJob      PublishJob @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+
+  @@index([publishJobId])
+  @@map("publish_attempts")
+}
+
+model PublishedPost {
+  id              String        @id @default(uuid())
+  publishJobId    String        @unique
+  videoId         String
+  socialAccountId String
+  platform        SocialPlatform
+  externalPostId  String        @db.VarChar(255)
+  externalUrl     String?       @db.VarChar(1000)
+  publishedAt     DateTime      @default(now())
+  metrics         Json?         // views, likes, comments, impressions, reach
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  publishJob      PublishJob    @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+  video           Video         @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+  @@index([socialAccountId])
+  @@index([platform])
+  @@index([externalPostId])
+  @@map("published_posts")
+}
+
+model Hashtag {
+  id             String    @id @default(uuid())
+  tag            String    @unique @db.VarChar(100)
+  category       String    @default("general") // primary, niche, audience, discovery, brand
+  relevanceScore Float     @default(1.0)
+  source         String    @default("curated") // curated, generated, verified
+  lastCheckedAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([tag])
+  @@index([category])
+  @@map("hashtags")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String   @db.Text
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, ERROR
+  isRead    Boolean  @default(false)
+  link      String?  @db.VarChar(500)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String   @db.VarChar(100)
+  entity    String   @db.VarChar(100)
+  entityId  String?  @db.VarChar(255)
+  ipAddress String?  @db.VarChar(64)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique @db.VarChar(100)
+  value       String   @db.Text
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+  @@map("system_settings")
+}

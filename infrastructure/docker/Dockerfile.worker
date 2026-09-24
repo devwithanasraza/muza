@@ -1,0 +1,34 @@
+FROM node:20-alpine AS base
+
+WORKDIR /app
+
+# Install ffmpeg for audio extraction
+RUN apk add --no-cache ffmpeg
+
+# Copy root and package descriptors
+COPY package*.json ./
+COPY packages/shared/package*.json ./packages/shared/
+COPY packages/database/package*.json ./packages/database/
+COPY packages/integrations/package*.json ./packages/integrations/
+COPY packages/ai/package*.json ./packages/ai/
+COPY apps/worker/package*.json ./apps/worker/
+
+# Install dependencies
+RUN npm ci
+
+# Copy full source
+COPY packages/shared ./packages/shared
+COPY packages/database ./packages/database
+COPY packages/integrations ./packages/integrations
+COPY packages/ai ./packages/ai
+COPY apps/worker ./apps/worker
+
+# Build
+RUN npm run db:generate
+RUN npm run build --workspace=@muza/shared
+RUN npm run build --workspace=@muza/database
+RUN npm run build --workspace=@muza/integrations
+RUN npm run build --workspace=@muza/ai
+RUN npm run build --workspace=@muza/worker
+
+CMD ["npm", "run", "start:worker"]

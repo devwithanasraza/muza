@@ -1,0 +1,22 @@
+{
+  "name": "@muza/ai",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@muza/shared": "*",
+    "openai": "^4.51.0",
+    "zod": "^3.23.8",
+    "jsonrepair": "^3.8.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "rimraf": "^5.0.7",
+    "@types/node": "^20.12.12"
+  }
+}

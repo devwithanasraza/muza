@@ -1,0 +1,34 @@
+{
+  "name": "muza-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MUZA - AI-Powered Content Management and Social Media Publishing Platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:all": "node scripts/dev.js",
+    "dev:web": "npm run dev --workspace=@muza/web",
+    "dev:api": "npm run dev --workspace=@muza/api",
+    "dev:worker": "npm run dev --workspace=@muza/worker",
+    "build": "npm run build --workspaces --if-present",
+    "start": "npm run start:api",
+    "start:api": "npm run start --workspace=@muza/api",
+    "start:worker": "npm run start --workspace=@muza/worker",
+    "start:web": "npm run start --workspace=@muza/web",
+    "test": "tsx --test tests/critical-pipeline.test.ts",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run generate --workspace=@muza/database",
+    "db:migrate": "npm run migrate --workspace=@muza/database",
+    "db:seed": "npm run seed --workspace=@muza/database"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
